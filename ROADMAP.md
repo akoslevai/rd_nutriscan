@@ -27,10 +27,10 @@ Total to production-ready MVP: ~9 weeks
 - [ ] Initialize monorepo (`/apps/web`, `/apps/api`, `/packages/shared`)
 - [ ] Frontend: Vite + React + TypeScript + Tailwind + shadcn/ui scaffold
 - [ ] Backend: Fastify + TypeScript + Drizzle ORM scaffold
-- [ ] PostgreSQL + Redis provisioned on Railway
-- [ ] Cloudflare R2 bucket created
+- [ ] Supabase project created (PostgreSQL + Auth + Storage bucket `products`)
+- [ ] Upstash Redis database created (free tier)
 - [ ] Vercel project linked to GitHub repo (auto-deploy on `main`)
-- [ ] Railway project linked to GitHub repo (auto-deploy on `main`)
+- [ ] Render web service linked to GitHub repo (auto-deploy on `main`)
 - [ ] GitHub Actions CI: lint + type-check + test on every PR
 - [ ] Environment variables configured in both platforms
 - [ ] Basic health check endpoint (`GET /api/health`)
@@ -88,16 +88,14 @@ Total to production-ready MVP: ~9 weeks
 **Goal:** User registration, login, server-synced history, and product submission.
 
 ### Backend
-- [ ] `POST /api/auth/register` (email + password)
-- [ ] `POST /api/auth/login` / logout / refresh
-- [ ] Google OAuth flow (`GET /api/auth/google` + callback)
-- [ ] JWT (RS256) access token + httpOnly refresh token cookie
-- [ ] Refresh token rotation + revocation
-- [ ] `GET /api/auth/me`
+- [ ] Configure Supabase project (Auth + PostgreSQL + Storage bucket)
+- [ ] Enable Google OAuth provider in Supabase Auth dashboard
+- [ ] JWT verification middleware (validate Supabase JWT via `SUPABASE_JWT_SECRET`)
+- [ ] Role claim setup (Supabase custom JWT hook to inject `role` claim for admins)
 - [ ] `GET /api/products/:ean` — query local DB before OFF
 - [ ] `POST /api/submissions` — product submission with image upload
   - [ ] sharp image processing (resize, strip EXIF, convert to WebP)
-  - [ ] R2 upload
+  - [ ] Supabase Storage upload
 - [ ] `GET /api/submissions` — list own submissions
 - [ ] `GET /api/admin/queue` — pending submissions list (admin role)
 - [ ] `PATCH /api/admin/submissions/:id` — approve / reject
@@ -109,7 +107,7 @@ Total to production-ready MVP: ~9 weeks
 ### Frontend
 - [ ] Login page (email/password + Google OAuth button)
 - [ ] Register page
-- [ ] Auth store (Zustand) + token refresh interceptor
+- [ ] Auth store (Zustand) wrapping `supabase.auth` + `onAuthStateChange` listener
 - [ ] Protected route wrapper
 - [ ] Anonymous → registered history migration prompt
 - [ ] Product submission form (`/submit/:ean`)

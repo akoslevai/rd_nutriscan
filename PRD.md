@@ -191,11 +191,11 @@ Open App → [Camera View] → Scan EAN → Lookup (OFF + Local DB)
 - **Routing:** React Router v6
 
 ### 6.2 Backend
-- **Runtime:** Node.js with Express or Fastify (TypeScript)
-- **Authentication:** Passport.js (local + Google OAuth) + JWT
-- **Database:** PostgreSQL (user accounts, submissions, approvals)
-- **Cache:** Redis (API response cache, rate limiting)
-- **File storage:** Object storage (S3-compatible) for product images
+- **Runtime:** Node.js with Fastify (TypeScript)
+- **Authentication:** Supabase Auth (email/password + Google OAuth, managed)
+- **Database:** Supabase PostgreSQL (user accounts, submissions, approvals)
+- **Cache:** Upstash Redis (API response cache, rate limiting)
+- **File storage:** Supabase Storage (product images)
 - **API:** REST (v1); GraphQL optional for v2
 
 ### 6.3 External Integrations
@@ -214,46 +214,23 @@ Open App → [Camera View] → Scan EAN → Lookup (OFF + Local DB)
 
 ---
 
-## 7. Deployment Options
+## 7. Deployment
 
-### Option A — Recommended: Vercel (Frontend) + Railway (Backend)
-| Component | Service | Cost |
-|-----------|---------|------|
-| Frontend PWA | Vercel (free tier) | $0–$20/mo |
-| Backend API | Railway (starter) | $5–$20/mo |
-| PostgreSQL | Railway managed Postgres | Included |
-| Redis | Railway managed Redis | Included |
-| Object Storage | Cloudflare R2 | $0–$5/mo |
-| **Total** | | **~$5–$45/mo** |
+### Recommended: All-Free Stack
 
-**Pros:** Zero DevOps, instant deploys from GitHub, global CDN for PWA, generous free tiers.
-**Cons:** Less control, cold starts on free Railway tier.
+| Component | Service | Free Tier Limits |
+|-----------|---------|-----------------|
+| Frontend PWA | Vercel | 100GB bandwidth, unlimited deploys |
+| Backend API | Render | 750 hrs/month (1 service), spins down after 15 min inactivity |
+| PostgreSQL + Auth + Storage | Supabase | 500MB DB, 1GB storage, 50k monthly active users |
+| Redis cache | Upstash Redis | 10k commands/day |
+| Error tracking | Sentry | 5k errors/month |
+| **Total** | | **$0/month** |
 
-### Option B — Fly.io (Full Stack)
-| Component | Service | Cost |
-|-----------|---------|------|
-| Frontend + Backend | Fly.io (2× shared-cpu-1x) | $0–$15/mo |
-| PostgreSQL | Fly Postgres | $0–$5/mo |
-| Redis | Upstash Redis | $0–$10/mo |
-| Object Storage | Cloudflare R2 | $0–$5/mo |
-| **Total** | | **~$0–$35/mo** |
+**Pros:** Fully free, zero DevOps, all services connect via GitHub, global CDN for PWA.
+**Cons:** Render free tier has ~30s cold start after 15 min idle; Supabase free pauses DB after 1 week inactivity (avoidable with a keep-alive ping).
 
-**Pros:** Docker-native, runs in multiple regions, generous free tier.
-**Cons:** Slightly more configuration than Vercel/Railway.
-
-### Option C — AWS (Production-Grade Scaling)
-| Component | Service |
-|-----------|---------|
-| Frontend | S3 + CloudFront |
-| Backend | ECS Fargate or Lambda |
-| Database | RDS PostgreSQL |
-| Cache | ElastiCache Redis |
-| Storage | S3 |
-
-**Pros:** Enterprise-grade, scales to millions of users.
-**Cons:** Complex setup, higher cost at low volume (~$50–$150/mo minimum).
-
-> **Recommendation for v1.0:** Option A (Vercel + Railway). Lowest friction, sufficient for thousands of users, easy to migrate to Option C if scale demands.
+> **Upgrade path:** When traffic grows, upgrade Render to Starter ($7/mo) to eliminate cold starts. Supabase Pro ($25/mo) removes the inactivity pause and raises all limits.
 
 ---
 
@@ -261,8 +238,8 @@ Open App → [Camera View] → Scan EAN → Lookup (OFF + Local DB)
 
 - HTTPS enforced everywhere (TLS 1.2+).
 - No PII stored for anonymous users; only EAN codes in local IndexedDB.
-- Registered user passwords hashed with bcrypt (cost factor ≥ 12).
-- JWT tokens short-lived (15 min access + 7-day refresh).
+- Passwords and JWT handling fully managed by Supabase Auth (bcrypt internally).
+- JWT tokens short-lived (1 hour access, managed by Supabase).
 - Rate limiting on scan/lookup endpoint (100 req/min per IP).
 - Open Food Facts queries proxied through backend to avoid CORS and to enable caching.
 - Product images scanned by users resized/stripped of EXIF metadata before storage.
@@ -307,4 +284,4 @@ Open App → [Camera View] → Scan EAN → Lookup (OFF + Local DB)
 ---
 
 *Document owner: Product Team*
-*Next step: Review open questions, then proceed to SPEC.md and ROADMAP.md*
+*Next step: Implementation — see SPEC.md and ROADMAP.md*

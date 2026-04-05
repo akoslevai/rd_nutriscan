@@ -17,32 +17,34 @@
 │                   Client (PWA)                      │
 │  React 18 + TypeScript + Vite + Tailwind + Zustand  │
 │  Service Worker (Workbox) · IndexedDB cache         │
-└────────────────────┬────────────────────────────────┘
-                     │ HTTPS REST
-┌────────────────────▼────────────────────────────────┐
-│               Backend API (Railway)                 │
-│         Node.js 20 · Fastify · TypeScript           │
-├──────────────┬──────────────────┬───────────────────┤
-│  PostgreSQL  │      Redis       │   S3-compatible   │
-│  (Railway)   │   (Railway)      │  (Cloudflare R2)  │
-└──────────────┴──────────┬───────┴───────────────────┘
-                          │ HTTP (proxied)
-              ┌───────────▼────────────┐
-              │   Open Food Facts API  │
-              │  world.openfoodfacts   │
-              └────────────────────────┘
+└──────────┬──────────────────────────┬───────────────┘
+           │ HTTPS REST               │ Supabase JS SDK
+┌──────────▼──────────┐   ┌───────────▼───────────────┐
+│   Backend API       │   │        Supabase            │
+│   (Render)          │   │  Auth · PostgreSQL         │
+│   Node.js 20        │   │  Storage (images)          │
+│   Fastify · TS      │   └───────────────────────────┘
+├──────────┬──────────┤
+│  Upstash │          │
+│  Redis   │          │
+└──────────┴────┬─────┘
+                │ HTTP (proxied)
+    ┌───────────▼────────────┐
+    │   Open Food Facts API  │
+    │  world.openfoodfacts   │
+    └────────────────────────┘
 ```
 
 ### 1.2 Deployment Topology
 
-| Component | Platform | Region |
-|-----------|----------|--------|
-| Frontend PWA | Vercel (static) | Edge (global CDN) |
-| Backend API | Railway (web service) | US-East or EU-West |
-| PostgreSQL | Railway managed | Same region as API |
-| Redis | Railway managed | Same region as API |
-| Object Storage | Cloudflare R2 | Global |
-| Domain / TLS | Vercel (frontend) + Railway custom domain | — |
+| Component | Platform | Free Tier |
+|-----------|----------|-----------|
+| Frontend PWA | Vercel (static) | 100GB bandwidth, global edge CDN |
+| Backend API | Render (web service) | 750 hrs/month; sleeps after 15 min idle |
+| PostgreSQL + Auth + Storage | Supabase | 500MB DB, 1GB storage, 50k MAU |
+| Redis cache | Upstash Redis | 10k commands/day |
+| Error tracking | Sentry | 5k errors/month |
+| Domain / TLS | Vercel (frontend) + Render custom domain | Free with own domain |
 
 ---
 
@@ -61,6 +63,7 @@
 | State | Zustand | 4.x |
 | Routing | React Router | 6.x |
 | HTTP client | ky | latest |
+| Auth + DB client | @supabase/supabase-js | latest |
 | Barcode scanning | @zxing/library + BarcodeDetector polyfill | latest |
 | Local storage | idb (IndexedDB wrapper) | latest |
 | Form validation | React Hook Form + Zod | latest |
@@ -185,11 +188,12 @@ interface ScanStore {
 }
 
 // stores/useAuthStore.ts
+// Thin wrapper — Supabase SDK manages session internally
 interface AuthStore {
-  user: User | null;
+  user: User | null;           // from supabase.auth.getUser()
   isAuthenticated: boolean;
-  login: (credentials: LoginPayload) => Promise<void>;
-  logout: () => void;
+  setUser: (user: User | null) => void;
+  logout: () => Promise<void>; // calls supabase.auth.signOut()
 }
 ```
 
@@ -223,10 +227,9 @@ Store: scan_history
 | Framework | Fastify | 4.x |
 | Language | TypeScript | 5.x |
 | ORM | Drizzle ORM | latest |
-| Auth | @fastify/passport + passport-local + passport-google-oauth20 | latest |
-| Session/JWT | jsonwebtoken + @fastify/cookie | latest |
+| Auth | @supabase/supabase-js (server-side) | latest |
 | Validation | Zod | latest |
-| Rate limiting | @fastify/rate-limit | latest |
+| Rate limiting | @fastify/rate-limit + Upstash Redis | latest |
 | File upload | @fastify/multipart | latest |
 | Image processing | sharp | latest |
 | Testing | Vitest + supertest | latest |
@@ -235,15 +238,18 @@ Store: scan_history
 
 #### Authentication
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `POST` | `/api/auth/register` | No | Register with email + password |
-| `POST` | `/api/auth/login` | No | Login, returns access + refresh tokens |
-| `POST` | `/api/auth/logout` | Yes | Invalidate refresh token |
-| `POST` | `/api/auth/refresh` | No | Exchange refresh token for new access token |
-| `GET` | `/api/auth/google` | No | Initiate Google OAuth flow |
-| `GET` | `/api/auth/google/callback` | No | Google OAuth callback |
-| `GET` | `/api/auth/me` | Yes | Get current user profile |
+Authentication is handled entirely by **Supabase Auth** on the client side. The backend validates Supabase JWTs on protected routes — no custom auth endpoints needed.
+
+| Client Action | Supabase SDK Call |
+|--------------|------------------|
+| Register (email/password) | `supabase.auth.signUp()` |
+| Login | `supabase.auth.signInWithPassword()` |
+| Google OAuth | `supabase.auth.signInWithOAuth({ provider: 'google' })` |
+| Logout | `supabase.auth.signOut()` |
+| Get session | `supabase.auth.getSession()` |
+| Token refresh | Automatic (Supabase SDK) |
+
+The Supabase JWT is passed as `Authorization: Bearer <token>` to the backend API. The backend verifies it using the Supabase JWT secret.
 
 #### Product Lookup
 
@@ -314,29 +320,11 @@ GET /api/products/:ean
   5. Store OFF result in Redis cache (TTL: 1 hour)
 ```
 
-### 3.4 Database Schema (PostgreSQL)
+### 3.4 Database Schema (Supabase PostgreSQL)
+
+The `users` table and auth are managed by Supabase Auth (`auth.users`). Application tables reference `auth.users(id)` directly. No custom users table or refresh tokens table needed.
 
 ```sql
--- Users
-CREATE TABLE users (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  email       TEXT UNIQUE NOT NULL,
-  password_hash TEXT,                    -- null for OAuth users
-  google_id   TEXT UNIQUE,
-  role        TEXT NOT NULL DEFAULT 'user',  -- 'user' | 'admin'
-  created_at  TIMESTAMPTZ DEFAULT now(),
-  updated_at  TIMESTAMPTZ DEFAULT now()
-);
-
--- Refresh tokens
-CREATE TABLE refresh_tokens (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  token_hash  TEXT NOT NULL,
-  expires_at  TIMESTAMPTZ NOT NULL,
-  created_at  TIMESTAMPTZ DEFAULT now()
-);
-
 -- Local product database (approved submissions)
 CREATE TABLE products (
   ean         TEXT PRIMARY KEY,
@@ -347,7 +335,7 @@ CREATE TABLE products (
   allergens_tags   TEXT[] DEFAULT '{}',
   traces_tags      TEXT[] DEFAULT '{}',
   nutriments       JSONB DEFAULT '{}',
-  submitted_by UUID REFERENCES users(id),
+  submitted_by UUID REFERENCES auth.users(id),
   created_at  TIMESTAMPTZ DEFAULT now(),
   updated_at  TIMESTAMPTZ DEFAULT now()
 );
@@ -363,8 +351,8 @@ CREATE TABLE submissions (
   allergens_tags   TEXT[] DEFAULT '{}',
   traces_tags      TEXT[] DEFAULT '{}',
   status      TEXT NOT NULL DEFAULT 'pending', -- 'pending'|'approved'|'rejected'
-  submitted_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  reviewed_by  UUID REFERENCES users(id),
+  submitted_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  reviewed_by  UUID REFERENCES auth.users(id),
   review_note  TEXT,
   submitted_at TIMESTAMPTZ DEFAULT now(),
   reviewed_at  TIMESTAMPTZ
@@ -373,7 +361,7 @@ CREATE TABLE submissions (
 -- Scan history (server-side, registered users)
 CREATE TABLE scan_history (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id     UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   ean         TEXT NOT NULL,
   product_name TEXT,
   condition_results JSONB DEFAULT '{}',
@@ -384,15 +372,16 @@ CREATE INDEX idx_scan_history_user ON scan_history(user_id, scanned_at DESC);
 
 ### 3.5 Authentication Flow
 
-**Access Token:** JWT, 15-minute expiry, signed with RS256, payload: `{ sub: userId, role }`
-**Refresh Token:** Opaque token, 7-day expiry, stored as hash in `refresh_tokens` table, sent as httpOnly `Secure` cookie.
+Auth is fully delegated to Supabase Auth. The backend acts as a stateless JWT verifier only.
 
-**Token Refresh:**
 ```
-Client detects 401 → POST /api/auth/refresh (cookie auto-sent)
-→ Server validates refresh token hash → issues new access token
-→ Refresh token rotation (old invalidated, new issued)
+Client → supabase.auth.signInWithPassword() → Supabase returns JWT
+Client → sends JWT as Authorization: Bearer <token> on every API request
+Backend → verifies JWT signature using SUPABASE_JWT_SECRET
+Backend → extracts { sub: userId, role } from JWT claims
 ```
+
+**Role management:** A `user_roles` table or Supabase custom claims via a database function sets `role = 'admin'` for admin users. The JWT includes this claim automatically.
 
 ### 3.6 File Upload (Product Images)
 
@@ -401,8 +390,8 @@ Client detects 401 → POST /api/auth/refresh (cookie auto-sent)
 2. Validate MIME type: image/jpeg, image/png, image/webp only
 3. Resize to max 800×800px (sharp), strip EXIF
 4. Convert to WebP (quality 80)
-5. Upload to Cloudflare R2 bucket: products/{ean}/{uuid}.webp
-6. Store public URL in submission record
+5. Upload to Supabase Storage bucket: products/{ean}/{uuid}.webp
+6. Store public URL (supabase.storage.from('products').getPublicUrl()) in submission record
 ```
 
 ### 3.7 Rate Limiting
@@ -454,7 +443,7 @@ GET https://world.openfoodfacts.org/api/v2/product/{ean}.json
 
 ### 5.1 Headers (via Fastify Helmet)
 ```
-Content-Security-Policy: default-src 'self'; img-src 'self' https://images.openfoodfacts.org https://pub-*.r2.dev; connect-src 'self' https://world.openfoodfacts.org
+Content-Security-Policy: default-src 'self'; img-src 'self' https://images.openfoodfacts.org https://*.supabase.co; connect-src 'self' https://world.openfoodfacts.org https://*.supabase.co
 X-Frame-Options: DENY
 X-Content-Type-Options: nosniff
 Referrer-Policy: strict-origin-when-cross-origin
@@ -479,25 +468,22 @@ Permissions-Policy: camera=(self)
 ### Frontend (Vite)
 ```env
 VITE_API_BASE_URL=https://api.nutriscan.app
-VITE_GOOGLE_CLIENT_ID=...
+VITE_SUPABASE_URL=https://xxxx.supabase.co
+VITE_SUPABASE_ANON_KEY=...
 ```
 
 ### Backend
 ```env
 NODE_ENV=production
 PORT=3000
-DATABASE_URL=postgresql://...
-REDIS_URL=redis://...
-JWT_PRIVATE_KEY=...      # RS256 private key (PEM)
-JWT_PUBLIC_KEY=...       # RS256 public key (PEM)
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
-R2_ACCOUNT_ID=...
-R2_ACCESS_KEY_ID=...
-R2_SECRET_ACCESS_KEY=...
-R2_BUCKET_NAME=nutriscan-products
-R2_PUBLIC_URL=https://pub-xxx.r2.dev
+DATABASE_URL=postgresql://...          # Supabase connection string (pooler)
+UPSTASH_REDIS_REST_URL=https://...
+UPSTASH_REDIS_REST_TOKEN=...
+SUPABASE_URL=https://xxxx.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=...          # Server-side only, never exposed to client
+SUPABASE_JWT_SECRET=...                # For verifying user JWTs
 CORS_ORIGIN=https://nutriscan.app
+SENTRY_DSN=...
 ```
 
 ---
