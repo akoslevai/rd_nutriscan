@@ -114,13 +114,16 @@ export default function ScannerPage() {
 
     try {
       let product = await getCachedProduct(ean)
+      let raw: unknown = null
       if (!product) {
-        product = await fetchProduct(ean)
+        const fetched = await fetchProduct(ean)
+        product = fetched.product
+        raw = fetched.raw
         await cacheProduct(product)
       }
 
       const results = evaluateConditions(activeConditions, product)
-      setFound(product, results)
+      setFound(product, results, raw)
 
       await addHistoryEntry({
         ean,

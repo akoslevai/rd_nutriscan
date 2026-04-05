@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useScanStore } from '@/stores/useScanStore'
 import type { ConditionStatus } from '@/types'
@@ -16,7 +17,8 @@ const NUTRISCORE_COLOR: Record<string, string> = {
 export default function ProductDetailPage() {
   const { ean } = useParams<{ ean: string }>()
   const navigate = useNavigate()
-  const { status, product, conditionResults } = useScanStore()
+  const { status, product, conditionResults, rawData } = useScanStore()
+  const [showRaw, setShowRaw] = useState(false)
 
   if (status === 'loading') {
     return (
@@ -59,6 +61,7 @@ export default function ProductDetailPage() {
 
   return (
     <div className="flex-1 overflow-y-auto">
+
       {/* Product header */}
       <div className="flex gap-4 p-4 border-b border-gray-100 dark:border-gray-800">
         {product.image_url && (
@@ -107,11 +110,36 @@ export default function ProductDetailPage() {
         </div>
       )}
 
-      <div className="p-4">
+      {/* Actions */}
+      <div className="p-4 flex flex-col gap-2">
         <button onClick={() => navigate('/')} className="w-full rounded-xl bg-green-600 text-white py-3 font-medium text-sm">
           Scan another
         </button>
+        {rawData != null && (
+          <button
+            onClick={() => setShowRaw(true)}
+            className="w-full rounded-xl border border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 py-3 text-sm"
+          >
+            Show raw Open Food Facts data
+          </button>
+        )}
       </div>
+
+      {/* Raw data modal */}
+      {showRaw && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-gray-950">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+            <h2 className="text-white text-sm font-semibold">Raw Open Food Facts response</h2>
+            <button onClick={() => setShowRaw(false)} className="text-gray-400 text-sm px-2 py-1">✕ Close</button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4">
+            <pre className="text-xs text-green-300 whitespace-pre-wrap break-all leading-relaxed">
+              {String(JSON.stringify(rawData, null, 2))}
+            </pre>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
