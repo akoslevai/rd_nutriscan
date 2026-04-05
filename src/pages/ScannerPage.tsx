@@ -29,7 +29,15 @@ export default function ScannerPage() {
       readerRef.current = reader
 
       await reader.decodeFromConstraints(
-        { video: { facingMode: 'environment' } },
+        {
+          video: {
+            facingMode: 'environment',
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            // @ts-expect-error — advanced constraints not in TS types but supported on Android Chrome/Ecosia
+            advanced: [{ focusMode: 'continuous' }],
+          },
+        },
         videoRef.current!,
         (result, err) => {
           if (err && !(err instanceof NotFoundException)) return
@@ -104,6 +112,9 @@ export default function ScannerPage() {
       <div className="relative w-full max-w-sm aspect-square overflow-hidden bg-gray-900">
         <video
           ref={videoRef}
+          autoPlay
+          playsInline
+          muted
           className="w-full h-full object-cover"
           style={{ display: cameraState === 'scanning' ? 'block' : 'none' }}
         />
