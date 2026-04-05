@@ -9,28 +9,20 @@ import { evaluateConditions } from '@/lib/conditions'
 
 type CameraState = 'idle' | 'starting' | 'scanning' | 'error'
 
-// Pick the best rear camera device ID.
-// On multi-lens phones (e.g. S21) facingMode:'environment' often selects the
-// ultra-wide lens. We prefer a device labelled as the main/back camera.
 async function pickRearCameraId(): Promise<string | undefined> {
-  // Must request a stream first so the browser populates device labels
   const probe = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
   probe.getTracks().forEach(t => t.stop())
 
   const devices = await navigator.mediaDevices.enumerateDevices()
   const cameras = devices.filter(d => d.kind === 'videoinput')
-
   if (cameras.length <= 1) return cameras[0]?.deviceId
 
-  // Prefer camera whose label suggests it is the main lens.
-  // Avoid ultra-wide (contains "ultra" or "wide") and front-facing ("front").
   const AVOID = /ultra|wide|front|selfie/i
   const PREFER = /back|rear|main|camera2 0|facing back/i
 
   const preferred = cameras.find(d => PREFER.test(d.label) && !AVOID.test(d.label))
   if (preferred) return preferred.deviceId
 
-  // Fallback: first camera that is not ultra-wide or front-facing
   const fallback = cameras.find(d => !AVOID.test(d.label))
   return fallback?.deviceId ?? cameras[0]?.deviceId
 }
@@ -38,6 +30,7 @@ async function pickRearCameraId(): Promise<string | undefined> {
 export default function ScannerPage() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const readerRef = useRef<BrowserMultiFormatReader | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
   const lastScanRef = useRef<number>(0)
   const navigate = useNavigate()
   const { setLoading, setFound, setNotFound, setError, reset } = useScanStore()
@@ -45,6 +38,7 @@ export default function ScannerPage() {
   const [manualEan, setManualEan] = useState('')
   const [cameraState, setCameraState] = useState<CameraState>('idle')
   const [cameraErrorMsg, setCameraErrorMsg] = useState('')
+  const [debugLabel, setDebugLabel] = useState('')
 
   async function startCamera() {
     setCameraState('starting')
@@ -53,16 +47,33 @@ export default function ScannerPage() {
     try {
       const deviceId = await pickRearCameraId()
 
-      const reader = new BrowserMultiFormatReader()
-      readerRef.current = reader
-
-      const constraints: MediaStreamConstraints = {
+      // Get stream ourselves for full control
+      const stream = await navigator.mediaDevices.getUserMedia({
         video: deviceId
           ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
           : { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+      })
+      streamRef.current = stream
+
+      // Show which camera was selected (debug)
+      const track = stream.getVideoTracks()[0]
+      setDebugLabel(track.label)
+
+      // Apply continuous autofocus on the active track
+      try {
+        await track.applyConstraints({
+          // @ts-expect-error — not in TS types but supported on Android Chrome
+          advanced: [{ focusMode: 'continuous' }],
+        })
+      } catch {
+        // Not supported on this device/browser — ignore
       }
 
-      await reader.decodeFromConstraints(constraints, videoRef.current!, (result, err) => {
+      // Let ZXing decode continuously from the stream
+      const reader = new BrowserMultiFormatReader()
+      readerRef.current = reader
+
+      await reader.decodeFromStream(stream, videoRef.current!, (result, err) => {
         if (err && !(err instanceof NotFoundException)) return
         if (!result) return
 
@@ -84,7 +95,10 @@ export default function ScannerPage() {
   function stopCamera() {
     readerRef.current?.reset()
     readerRef.current = null
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
     setCameraState('idle')
+    setDebugLabel('')
   }
 
   async function handleEan(ean: string) {
@@ -131,7 +145,6 @@ export default function ScannerPage() {
   return (
     <div className="flex flex-col items-center flex-1 bg-gray-950">
 
-      {/* Camera viewport — video always in DOM so ZXing can attach to it */}
       <div className="relative w-full max-w-sm aspect-square overflow-hidden bg-gray-900">
         <video
           ref={videoRef}
@@ -186,8 +199,12 @@ export default function ScannerPage() {
         )}
       </div>
 
-      {/* Manual entry */}
-      <div className="w-full max-w-sm px-4 mt-6">
+      {/* Debug: show selected camera label */}
+      {debugLabel && (
+        <p className="text-gray-500 text-xs mt-2 px-4 text-center">📷 {debugLabel}</p>
+      )}
+
+      <div className="w-full max-w-sm px-4 mt-4">
         <p className="text-gray-400 text-sm text-center mb-4">
           Or enter the EAN code manually
         </p>
