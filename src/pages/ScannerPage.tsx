@@ -17,14 +17,20 @@ async function pickRearCameraId(): Promise<string | undefined> {
   const cameras = devices.filter(d => d.kind === 'videoinput')
   if (cameras.length <= 1) return cameras[0]?.deviceId
 
-  const AVOID = /ultra|wide|front|selfie/i
-  const PREFER = /back|rear|main|camera2 0|facing back/i
+  const FRONT = /front|selfie/i
+  const rear = cameras.filter(d => !FRONT.test(d.label))
+  if (rear.length === 0) return cameras[0]?.deviceId
 
-  const preferred = cameras.find(d => PREFER.test(d.label) && !AVOID.test(d.label))
-  if (preferred) return preferred.deviceId
+  // Extract numeric index from labels like "camera 0, facing back".
+  // On Samsung (and most Android), camera 0 = main wide lens (best for scanning).
+  // Higher indices tend to be ultra-wide or telephoto.
+  const withIndex = rear.map(d => {
+    const match = d.label.match(/camera\s*(\d+)/i)
+    return { device: d, idx: match ? parseInt(match[1]) : 99 }
+  })
+  withIndex.sort((a, b) => a.idx - b.idx)
 
-  const fallback = cameras.find(d => !AVOID.test(d.label))
-  return fallback?.deviceId ?? cameras[0]?.deviceId
+  return withIndex[0].device.deviceId
 }
 
 export default function ScannerPage() {
