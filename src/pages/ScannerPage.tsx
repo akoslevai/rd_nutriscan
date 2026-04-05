@@ -9,6 +9,32 @@ import { evaluateConditions } from '@/lib/conditions'
 
 type CameraState = 'idle' | 'starting' | 'scanning' | 'error'
 
+// Pick the best rear camera device ID.
+// On multi-lens phones (e.g. S21) facingMode:'environment' often selects the
+// ultra-wide lens. We prefer a device labelled as the main/back camera.
+async function pickRearCameraId(): Promise<string | undefined> {
+  // Must request a stream first so the browser populates device labels
+  const probe = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+  probe.getTracks().forEach(t => t.stop())
+
+  const devices = await navigator.mediaDevices.enumerateDevices()
+  const cameras = devices.filter(d => d.kind === 'videoinput')
+
+  if (cameras.length <= 1) return cameras[0]?.deviceId
+
+  // Prefer camera whose label suggests it is the main lens.
+  // Avoid ultra-wide (contains "ultra" or "wide") and front-facing ("front").
+  const AVOID = /ultra|wide|front|selfie/i
+  const PREFER = /back|rear|main|camera2 0|facing back/i
+
+  const preferred = cameras.find(d => PREFER.test(d.label) && !AVOID.test(d.label))
+  if (preferred) return preferred.deviceId
+
+  // Fallback: first camera that is not ultra-wide or front-facing
+  const fallback = cameras.find(d => !AVOID.test(d.label))
+  return fallback?.deviceId ?? cameras[0]?.deviceId
+}
+
 export default function ScannerPage() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const readerRef = useRef<BrowserMultiFormatReader | null>(null)
@@ -25,31 +51,28 @@ export default function ScannerPage() {
     reset()
 
     try {
+      const deviceId = await pickRearCameraId()
+
       const reader = new BrowserMultiFormatReader()
       readerRef.current = reader
 
-      await reader.decodeFromConstraints(
-        {
-          video: {
-            facingMode: 'environment',
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            // @ts-expect-error — advanced constraints not in TS types but supported on Android Chrome/Ecosia
-            advanced: [{ focusMode: 'continuous' }],
-          },
-        },
-        videoRef.current!,
-        (result, err) => {
-          if (err && !(err instanceof NotFoundException)) return
-          if (!result) return
+      const constraints: MediaStreamConstraints = {
+        video: deviceId
+          ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+          : { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+      }
 
-          const now = Date.now()
-          if (now - lastScanRef.current < 1500) return
-          lastScanRef.current = now
+      await reader.decodeFromConstraints(constraints, videoRef.current!, (result, err) => {
+        if (err && !(err instanceof NotFoundException)) return
+        if (!result) return
 
-          handleEan(result.getText())
-        }
-      )
+        const now = Date.now()
+        if (now - lastScanRef.current < 1500) return
+        lastScanRef.current = now
+
+        handleEan(result.getText())
+      })
+
       setCameraState('scanning')
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error'
@@ -119,7 +142,6 @@ export default function ScannerPage() {
           style={{ display: cameraState === 'scanning' ? 'block' : 'none' }}
         />
 
-        {/* Idle state */}
         {cameraState === 'idle' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
             <div className="text-5xl">📷</div>
@@ -132,7 +154,6 @@ export default function ScannerPage() {
           </div>
         )}
 
-        {/* Starting / requesting permission */}
         {cameraState === 'starting' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-white">
             <div className="w-8 h-8 border-2 border-green-400 border-t-transparent rounded-full animate-spin" />
@@ -140,7 +161,6 @@ export default function ScannerPage() {
           </div>
         )}
 
-        {/* Error state */}
         {cameraState === 'error' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
             <div className="text-3xl">⚠️</div>
@@ -151,7 +171,6 @@ export default function ScannerPage() {
           </div>
         )}
 
-        {/* Scanning overlay */}
         {cameraState === 'scanning' && (
           <>
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
