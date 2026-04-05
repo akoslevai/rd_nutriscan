@@ -19,6 +19,27 @@ export default function ProductDetailPage() {
   const navigate = useNavigate()
   const { status, product, conditionResults, rawData } = useScanStore()
   const [showRaw, setShowRaw] = useState(false)
+  const [fetchedRaw, setFetchedRaw] = useState<unknown>(null)
+  const [rawLoading, setRawLoading] = useState(false)
+
+  async function handleShowRaw() {
+    // Use already-stored raw data if available (fresh scan)
+    if (rawData != null) { setShowRaw(true); return }
+    // Otherwise fetch from OFF on demand
+    setRawLoading(true)
+    try {
+      const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${product!.ean}.json`)
+      const data = await res.json()
+      setFetchedRaw(data.product ?? data)
+    } catch {
+      setFetchedRaw({ error: 'Could not fetch raw data' })
+    } finally {
+      setRawLoading(false)
+      setShowRaw(true)
+    }
+  }
+
+  const displayRaw = rawData ?? fetchedRaw
 
   if (status === 'loading') {
     return (
@@ -115,14 +136,13 @@ export default function ProductDetailPage() {
         <button onClick={() => navigate('/')} className="w-full rounded-xl bg-green-600 text-white py-3 font-medium text-sm">
           Scan another
         </button>
-        {rawData != null && (
-          <button
-            onClick={() => setShowRaw(true)}
-            className="w-full rounded-xl border border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 py-3 text-sm"
-          >
-            Show raw Open Food Facts data
-          </button>
-        )}
+        <button
+          onClick={handleShowRaw}
+          disabled={rawLoading}
+          className="w-full rounded-xl border border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 py-3 text-sm disabled:opacity-50"
+        >
+          {rawLoading ? 'Loading…' : 'Show raw Open Food Facts data'}
+        </button>
       </div>
 
       {/* Raw data modal */}
@@ -134,7 +154,7 @@ export default function ProductDetailPage() {
           </div>
           <div className="flex-1 overflow-y-auto p-4">
             <pre className="text-xs text-green-300 whitespace-pre-wrap break-all leading-relaxed">
-              {String(JSON.stringify(rawData, null, 2))}
+              {String(JSON.stringify(displayRaw, null, 2))}
             </pre>
           </div>
         </div>
