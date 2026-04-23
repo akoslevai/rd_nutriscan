@@ -96,6 +96,11 @@ export default function ProductDetailPage() {
               Nutriscore {product.nutriscore.toUpperCase()}
             </span>
           )}
+          {product.source === 'community' && (
+            <span className="inline-block mt-2 ml-1 px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-xs font-medium">
+              Community
+            </span>
+          )}
         </div>
       </div>
 

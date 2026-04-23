@@ -8,7 +8,7 @@ export interface Product {
   allergens_tags: string[]
   traces_tags: string[]
   nutriments: Record<string, number>
-  source: 'openfoodfacts' | 'local'
+  source: 'openfoodfacts' | 'community'
 }
 
 export type ConditionStatus = 'safe' | 'unsafe' | 'uncertain'

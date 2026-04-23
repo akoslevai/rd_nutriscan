@@ -6,6 +6,7 @@ import { useFilterStore } from '@/stores/useFilterStore'
 import { fetchProduct, ProductNotFoundError } from '@/lib/openfoodfacts'
 import { getCachedProduct, cacheProduct, addHistoryEntry } from '@/lib/db'
 import { evaluateConditions } from '@/lib/conditions'
+import { lookupCustomProduct } from '@/lib/customProducts'
 
 type CameraState = 'idle' | 'starting' | 'scanning' | 'error'
 
@@ -116,10 +117,16 @@ export default function ScannerPage() {
       let product = await getCachedProduct(ean)
       let raw: unknown = null
       if (!product) {
-        const fetched = await fetchProduct(ean)
-        product = fetched.product
-        raw = fetched.raw
-        await cacheProduct(product)
+        const community = await lookupCustomProduct(ean)
+        if (community) {
+          product = community
+          await cacheProduct(product)
+        } else {
+          const fetched = await fetchProduct(ean)
+          product = fetched.product
+          raw = fetched.raw
+          await cacheProduct(product)
+        }
       }
 
       const results = evaluateConditions(activeConditions, product)
@@ -137,7 +144,7 @@ export default function ScannerPage() {
     } catch (err) {
       if (err instanceof ProductNotFoundError) {
         setNotFound()
-        navigate(`/product/${ean}`)
+        navigate(`/submit/${ean}`)
       } else {
         setError('Could not fetch product. Check your connection.')
         setCameraState('idle')

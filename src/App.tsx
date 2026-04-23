@@ -4,6 +4,7 @@ import ScannerPage from '@/pages/ScannerPage'
 import ProductDetailPage from '@/pages/ProductDetailPage'
 import HistoryPage from '@/pages/HistoryPage'
 import SettingsPage from '@/pages/SettingsPage'
+import ProductSubmitPage from '@/pages/ProductSubmitPage'
 
 export default function App() {
   return (
@@ -12,6 +13,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<ScannerPage />} />
           <Route path="/product/:ean" element={<ProductDetailPage />} />
+          <Route path="/submit/:ean" element={<ProductSubmitPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
