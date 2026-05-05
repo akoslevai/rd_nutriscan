@@ -7,6 +7,7 @@ import { fetchProduct, ProductNotFoundError } from '@/lib/openfoodfacts'
 import { getCachedProduct, cacheProduct, addHistoryEntry } from '@/lib/db'
 import { evaluateConditions } from '@/lib/conditions'
 import { lookupCustomProduct } from '@/lib/customProducts'
+import { logScanEvent } from '@/lib/analytics'
 
 type CameraState = 'idle' | 'starting' | 'scanning' | 'error'
 
@@ -131,6 +132,7 @@ export default function ScannerPage() {
 
       const results = evaluateConditions(activeConditions, product)
       setFound(product, results, raw)
+      logScanEvent({ ean, product_source: product.source, product_name: product.name, active_conditions: activeConditions.length })
 
       await addHistoryEntry({
         ean,
@@ -143,6 +145,7 @@ export default function ScannerPage() {
       navigate(`/product/${ean}`)
     } catch (err) {
       if (err instanceof ProductNotFoundError) {
+        logScanEvent({ ean, product_source: 'not_found', product_name: null, active_conditions: activeConditions.length })
         setNotFound()
         navigate(`/submit/${ean}`)
       } else {
